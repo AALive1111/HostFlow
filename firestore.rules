@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (matches auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - role: string (required, 'admin' or 'client')
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: properties
+    // Document ID: propertyId
+    // Fields:
+    //   - id: string (required)
+    //   - ownerUid: string (required, matches creator's uid)
+    //   - name: string (required, min 1, max 100)
+    //   - address: string (optional, max 200)
+    //   - status: string (required, 'active' or 'inactive')
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: bookings
+    // Document ID: bookingId
+    // Fields:
+    //   - id: string (required)
+    //   - propertyId: string (required)
+    //   - ownerUid: string (required, matches creator's uid)
+    //   - guestName: string (required)
+    //   - checkIn: timestamp (required)
+    //   - checkOut: timestamp (required)
+    //   - revenue: number (required)
+    //   - status: string (required, 'confirmed', 'cancelled', 'completed')
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: tasks
+    // Document ID: taskId
+    // Fields:
+    //   - id: string (required)
+    //   - propertyId: string (required)
+    //   - ownerUid: string (required, matches creator's uid)
+    //   - title: string (required)
+    //   - description: string (optional)
+    //   - assignedTo: string (optional)
+    //   - dueDate: timestamp (required)
+    //   - status: string (required, 'todo', 'in-progress', 'completed')
+    //   - priority: string (required, 'low', 'medium', 'high')
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "elei.noah.official@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.role in ['admin', 'client'] &&
+             data.email is string &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidProperty(data) {
+      return hasRequiredFields(['id', 'ownerUid', 'name', 'status', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'ownerUid', 'name', 'address', 'status', 'createdAt']) &&
+             data.ownerUid == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.status in ['active', 'inactive'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidBooking(data) {
+      return hasRequiredFields(['id', 'propertyId', 'ownerUid', 'guestName', 'checkIn', 'checkOut', 'revenue', 'status', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'propertyId', 'ownerUid', 'guestName', 'checkIn', 'checkOut', 'revenue', 'status', 'createdAt']) &&
+             data.ownerUid == request.auth.uid &&
+             data.guestName is string && data.guestName.size() > 0 &&
+             data.checkIn is timestamp &&
+             data.checkOut is timestamp &&
+             data.revenue is number &&
+             data.status in ['confirmed', 'cancelled', 'completed'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidTask(data) {
+      return hasRequiredFields(['id', 'propertyId', 'ownerUid', 'title', 'status', 'priority', 'dueDate', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'propertyId', 'ownerUid', 'title', 'description', 'assignedTo', 'status', 'priority', 'dueDate', 'createdAt']) &&
+             data.ownerUid == request.auth.uid &&
+             data.title is string && data.title.size() > 0 &&
+             data.status in ['todo', 'in-progress', 'completed'] &&
+             data.priority in ['low', 'medium', 'high'] &&
+             data.dueDate is timestamp &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'client' || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /properties/{propertyId} {
+      allow read: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidProperty(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid && isValidProperty(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidBooking(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid && isValidBooking(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidTask(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid && isValidTask(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+  }
+}

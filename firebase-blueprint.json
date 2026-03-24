@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "A user of the HostFlow platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique ID of the user." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "displayName": { "type": "string", "description": "The user's display name." },
+        "photoURL": { "type": "string", "description": "The user's profile photo URL." },
+        "role": { "type": "string", "enum": ["admin", "client"], "description": "The user's role." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user account was created." }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "properties": {
+      "title": "Property",
+      "description": "A rental property managed by a host.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the property." },
+        "ownerUid": { "type": "string", "description": "The UID of the host who owns this property." },
+        "name": { "type": "string", "description": "Name of the property." },
+        "address": { "type": "string", "description": "Physical address." },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Current status of the property." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the property was added." }
+      },
+      "required": ["id", "ownerUid", "name", "status"]
+    },
+    "bookings": {
+      "title": "Booking",
+      "description": "A booking for a property.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the booking." },
+        "propertyId": { "type": "string", "description": "ID of the property being booked." },
+        "ownerUid": { "type": "string", "description": "UID of the host." },
+        "guestName": { "type": "string", "description": "Name of the guest." },
+        "checkIn": { "type": "string", "format": "date-time", "description": "Check-in date." },
+        "checkOut": { "type": "string", "format": "date-time", "description": "Check-out date." },
+        "revenue": { "type": "number", "description": "Revenue from the booking." },
+        "status": { "type": "string", "enum": ["confirmed", "cancelled", "completed"], "description": "Booking status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the booking was created." }
+      },
+      "required": ["id", "propertyId", "ownerUid", "guestName", "checkIn", "checkOut", "revenue", "status"]
+    },
+    "tasks": {
+      "title": "Task",
+      "description": "A maintenance or cleaning task for a property.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the task." },
+        "propertyId": { "type": "string", "description": "ID of the property." },
+        "ownerUid": { "type": "string", "description": "UID of the host." },
+        "title": { "type": "string", "description": "Title of the task." },
+        "description": { "type": "string", "description": "Detailed description." },
+        "assignedTo": { "type": "string", "description": "Name of the person assigned." },
+        "dueDate": { "type": "string", "format": "date-time", "description": "Deadline for the task." },
+        "status": { "type": "string", "enum": ["todo", "in-progress", "completed"], "description": "Current status." },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "Task priority." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the task was created." }
+      },
+      "required": ["id", "propertyId", "ownerUid", "title", "status", "priority", "dueDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile documents."
+    },
+    "/properties/{propertyId}": {
+      "schema": "properties",
+      "description": "Property management documents."
+    },
+    "/bookings/{bookingId}": {
+      "schema": "bookings",
+      "description": "Booking documents."
+    },
+    "/tasks/{taskId}": {
+      "schema": "tasks",
+      "description": "Maintenance and cleaning tasks."
+    }
+  }
+}
