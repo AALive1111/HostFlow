@@ -28,7 +28,11 @@ import {
   Instagram,
   Twitter,
   Linkedin,
-  Facebook
+  Facebook,
+  Download,
+  BookOpen,
+  MessageCircle,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -52,6 +56,16 @@ import {
   OperationType
 } from './firebase';
 import { deleteDoc, addDoc, updateDoc } from 'firebase/firestore';
+
+import { 
+  Routes, 
+  Route, 
+  useNavigate, 
+  useSearchParams,
+  Link,
+  Navigate
+} from 'react-router-dom';
+import emailjs from '@emailjs/browser';
 
 import { 
   LineChart, 
@@ -111,6 +125,7 @@ interface UserProfile {
   displayName: string;
   photoURL: string;
   role: 'admin' | 'client';
+  plan?: string;
   createdAt: Timestamp;
 }
 
@@ -145,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               displayName: firebaseUser.displayName || '',
               photoURL: firebaseUser.photoURL || '',
               role: 'client',
+              plan: 'none',
               createdAt: serverTimestamp() as Timestamp,
             };
             await setDoc(userDocRef, newProfile);
@@ -170,753 +186,646 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 const useAuth = () => useContext(AuthContext);
 
-// --- Components ---
+// --- Dashboard Component (Premium Client Portal) ---
+function Dashboard() {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
 
-function AnalyticsDashboard({ properties, bookings }: { properties: Property[], bookings: Booking[] }) {
-  // Process data for charts
-  const revenueByMonth = bookings
-    .filter(b => b.status !== 'cancelled')
-    .reduce((acc: any[], booking) => {
-      const date = booking.checkIn.toDate();
-      const month = date.toLocaleString('default', { month: 'short' });
-      const year = date.getFullYear();
-      const label = `${month} ${year}`;
-      
-      const existing = acc.find(item => item.name === label);
-      if (existing) {
-        existing.revenue += booking.revenue;
-      } else {
-        acc.push({ name: label, revenue: booking.revenue, date });
-      }
-      return acc;
-    }, [])
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  if (!user) return null;
 
-  const occupancyByProperty = properties.map(prop => {
-    const propBookings = bookings.filter(b => b.propertyId === prop.id && b.status !== 'cancelled');
-    // Simple occupancy calculation: (booked days / total days in period)
-    // For this demo, we'll just show number of bookings as a proxy or a mock percentage
-    const occupancy = Math.min(100, Math.floor(propBookings.length * 15 + Math.random() * 20));
-    return { name: prop.name, occupancy };
-  });
-
-  const statusData = [
-    { name: 'Completed', value: bookings.filter(b => b.status === 'completed').length, color: '#10b981' },
-    { name: 'Confirmed', value: bookings.filter(b => b.status === 'confirmed').length, color: '#3b82f6' },
-    { name: 'Cancelled', value: bookings.filter(b => b.status === 'cancelled').length, color: '#ef4444' },
-  ].filter(d => d.value > 0);
-
-  const totalRevenue = bookings
-    .filter(b => b.status !== 'cancelled')
-    .reduce((sum, b) => sum + b.revenue, 0);
-
-  const avgOccupancy = occupancyByProperty.length > 0 
-    ? Math.floor(occupancyByProperty.reduce((sum, item) => sum + item.occupancy, 0) / occupancyByProperty.length)
-    : 0;
+  const hasPlan = profile?.plan && profile.plan !== 'none';
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-outline-variant/10">
-          <p className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-2">Total Revenue</p>
-          <h3 className="text-3xl font-bold text-primary">Rp {totalRevenue.toLocaleString()}</h3>
-          <p className="text-xs text-green-600 mt-2 font-bold">+12% from last month</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-outline-variant/10">
-          <p className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-2">Avg. Occupancy</p>
-          <h3 className="text-3xl font-bold text-on-surface">{avgOccupancy}%</h3>
-          <p className="text-xs text-blue-600 mt-2 font-bold">Stable performance</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-outline-variant/10">
-          <p className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-2">Total Bookings</p>
-          <h3 className="text-3xl font-bold text-on-surface">{bookings.length}</h3>
-          <p className="text-xs text-on-surface-variant mt-2 font-bold">{bookings.filter(b => b.status === 'confirmed').length} upcoming</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Revenue Trend */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-outline-variant/10">
-          <h3 className="text-xl font-bold mb-8">Revenue Trend</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={revenueByMonth}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} tickFormatter={(value) => `Rp ${value/1000}k`} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [`Rp ${value.toLocaleString()}`, 'Revenue']}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Occupancy by Property */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-outline-variant/10">
-          <h3 className="text-xl font-bold mb-8">Occupancy by Property</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={occupancyByProperty} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" domain={[0, 100]} hide />
-                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} width={100} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}}
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [`${value}%`, 'Occupancy']}
-                />
-                <Bar dataKey="occupancy" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Booking Status Distribution */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-outline-variant/10">
-          <h3 className="text-xl font-bold mb-8">Booking Status</h3>
-          <div className="h-[300px] w-full flex items-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-4 pr-8">
-              {statusData.map((item, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                  <span className="text-sm font-medium text-on-surface-variant">{item.name}: {item.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Bookings List */}
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-outline-variant/10">
-          <h3 className="text-xl font-bold mb-8">Recent Bookings</h3>
-          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {bookings.slice(0, 5).map((booking) => (
-              <div key={booking.id} className="flex items-center justify-between p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/5">
-                <div>
-                  <p className="font-bold text-on-surface">{booking.guestName}</p>
-                  <p className="text-xs text-on-surface-variant">{booking.checkIn.toDate().toLocaleDateString()} - {booking.checkOut.toDate().toLocaleDateString()}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-primary">Rp {booking.revenue.toLocaleString()}</p>
-                  <span className={`text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-full ${
-                    booking.status === 'completed' ? 'bg-green-100 text-green-700' : 
-                    booking.status === 'confirmed' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
-                  }`}>
-                    {booking.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TasksView({ properties, tasks, onUpdateStatus, onDeleteTask, onAddTask }: { 
-  properties: Property[], 
-  tasks: Task[], 
-  onUpdateStatus: (id: string, status: Task['status']) => void,
-  onDeleteTask: (id: string) => void,
-  onAddTask: (task: Partial<Task>) => void
-}) {
-  const [isAdding, setIsAdding] = useState(false);
-  const [newTask, setNewTask] = useState<Partial<Task>>({
-    title: '',
-    description: '',
-    assignedTo: '',
-    propertyId: properties[0]?.id || '',
-    priority: 'medium',
-    status: 'todo'
-  });
-  const [dueDate, setDueDate] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTask.title || !newTask.propertyId || !dueDate) return;
-    
-    onAddTask({
-      ...newTask,
-      dueDate: Timestamp.fromDate(new Date(dueDate))
-    });
-    setIsAdding(false);
-    setNewTask({
-      title: '',
-      description: '',
-      assignedTo: '',
-      propertyId: properties[0]?.id || '',
-      priority: 'medium',
-      status: 'todo'
-    });
-    setDueDate('');
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return 'text-red-600 bg-red-50';
-      case 'medium': return 'text-amber-600 bg-amber-50';
-      case 'low': return 'text-green-600 bg-green-50';
-      default: return 'text-slate-600 bg-slate-50';
-    }
-  };
-
-  const isOverdue = (date: Timestamp) => {
-    return date.toDate() < new Date() && date.toDate().toDateString() !== new Date().toDateString();
-  };
-
-  return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold">Maintenance & Cleaning</h2>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="bg-primary text-on-primary px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:shadow-lg transition-all"
-        >
-          <Plus className="w-5 h-5" />
-          Create Task
-        </button>
-      </div>
-
-      {isAdding && (
+    <div className="min-h-screen pt-32 pb-20 px-6 bg-slate-50">
+      <div className="max-w-4xl mx-auto">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-8 rounded-3xl shadow-xl border border-outline-variant/10"
+          className="space-y-8"
         >
-          <h3 className="text-xl font-bold mb-6">Create New Task</h3>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Task Title</label>
-              <input 
-                type="text" 
-                value={newTask.title}
-                onChange={(e) => setNewTask({...newTask, title: e.target.value})}
-                placeholder="e.g. Deep clean kitchen"
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Property</label>
-              <select 
-                value={newTask.propertyId}
-                onChange={(e) => setNewTask({...newTask, propertyId: e.target.value})}
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none bg-white"
-                required
-              >
-                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Assigned To</label>
-              <input 
-                type="text" 
-                value={newTask.assignedTo}
-                onChange={(e) => setNewTask({...newTask, assignedTo: e.target.value})}
-                placeholder="e.g. John Cleaner"
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Due Date</label>
-              <input 
-                type="date" 
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Priority</label>
-              <select 
-                value={newTask.priority}
-                onChange={(e) => setNewTask({...newTask, priority: e.target.value as any})}
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none bg-white"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-on-surface-variant">Description</label>
-              <textarea 
-                value={newTask.description}
-                onChange={(e) => setNewTask({...newTask, description: e.target.value})}
-                placeholder="Any special instructions..."
-                className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none h-12"
-              />
-            </div>
-            <div className="md:col-span-2 flex gap-4">
-              <button type="submit" className="bg-primary text-on-primary px-8 py-3 rounded-full font-bold">Create Task</button>
-              <button type="button" onClick={() => setIsAdding(false)} className="text-on-surface-variant font-bold px-8 py-3">Cancel</button>
-            </div>
-          </form>
-        </motion.div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {(['todo', 'in-progress', 'completed'] as const).map((status) => (
-          <div key={status} className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="font-bold text-on-surface-variant uppercase text-xs tracking-widest flex items-center gap-2">
-                {status === 'todo' && <Clock className="w-4 h-4" />}
-                {status === 'in-progress' && <RefreshCw className="w-4 h-4 animate-spin-slow" />}
-                {status === 'completed' && <CheckCircle2 className="w-4 h-4" />}
-                {status.replace('-', ' ')}
-              </h3>
-              <span className="bg-surface-container px-2 py-0.5 rounded-full text-[10px] font-bold">
-                {tasks.filter(t => t.status === status).length}
-              </span>
-            </div>
+          {/* Hero Section (Top Card) */}
+          <div className="bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 rounded-[2rem] p-8 md:p-12 text-white shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 -mt-20 -mr-20 w-64 h-64 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-700"></div>
+            <div className="absolute bottom-0 left-0 -mb-20 -ml-20 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-700"></div>
             
-            <div className="space-y-4 min-h-[200px]">
-              {tasks.filter(t => t.status === status).map((task) => (
-                <motion.div 
-                  key={task.id}
-                  layoutId={task.id}
-                  className="bg-white p-5 rounded-2xl shadow-sm border border-outline-variant/10 group"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${getPriorityColor(task.priority)}`}>
-                      {task.priority}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {status !== 'completed' && (
-                        <button 
-                          onClick={() => onUpdateStatus(task.id, status === 'todo' ? 'in-progress' : 'completed')}
-                          className="p-1.5 hover:bg-primary/10 text-primary rounded-full transition-colors"
-                          title="Move to next stage"
-                        >
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => onDeleteTask(task.id)}
-                        className="p-1.5 hover:bg-error/10 text-error rounded-full transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <h4 className="font-bold text-on-surface mb-1">{task.title}</h4>
-                  <p className="text-xs text-on-surface-variant mb-4 line-clamp-2">{task.description}</p>
-                  
-                  <div className="flex flex-col gap-2 pt-4 border-t border-outline-variant/5">
-                    <div className="flex items-center gap-2 text-[10px] text-on-surface-variant">
-                      <Building2 className="w-3 h-3" />
-                      <span className="truncate">{properties.find(p => p.id === task.propertyId)?.name}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-[10px] text-on-surface-variant">
-                        <UserIcon className="w-3 h-3" />
-                        <span>{task.assignedTo || 'Unassigned'}</span>
-                      </div>
-                      <div className={`flex items-center gap-1 text-[10px] font-bold ${isOverdue(task.dueDate) && status !== 'completed' ? 'text-error' : 'text-on-surface-variant'}`}>
-                        <Calendar className="w-3 h-3" />
-                        <span>{task.dueDate.toDate().toLocaleDateString()}</span>
-                        {isOverdue(task.dueDate) && status !== 'completed' && <AlertCircle className="w-3 h-3" />}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-              {tasks.filter(t => t.status === status).length === 0 && (
-                <div className="py-10 text-center border-2 border-dashed border-outline-variant/10 rounded-2xl">
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">No tasks</p>
-                </div>
-              )}
+            <div className="relative z-10">
+              <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight leading-tight">
+                Your AI Property System is Ready 🚀
+              </h1>
+              <p className="text-lg md:text-xl text-blue-100 max-w-2xl font-medium opacity-90">
+                Activate your plan to start automating your business and increasing bookings.
+              </p>
             </div>
           </div>
-        ))}
+
+          {/* Plan Status Card */}
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-200/60 transition-all duration-300"
+          >
+            {hasPlan ? (
+              <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="flex items-center gap-6">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-2xl font-bold text-slate-900">Your System is Active</h3>
+                      <span className="bg-emerald-100 text-emerald-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md tracking-wider">
+                        {profile?.plan}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 font-medium">Your AI property system is ready to use</p>
+                  </div>
+                </div>
+                <motion.button 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => window.open('https://example.com/app', '_blank')}
+                  className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 group transition-all"
+                >
+                  Open System
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </motion.button>
+              </div>
+            ) : (
+              <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="flex items-center gap-6">
+                  <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-500 shrink-0">
+                    <AlertCircle className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 mb-1">No Active Plan</h3>
+                    <p className="text-slate-500 font-medium">Activate your plan to unlock your AI system</p>
+                  </div>
+                </div>
+                <motion.button 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate('/pricing')}
+                  className="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group transition-all"
+                >
+                  Upgrade Now
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </motion.button>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Actions Section (ONLY if user has a plan) */}
+          {hasPlan && (
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold text-slate-800 ml-2">Quick Actions</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <motion.button 
+                  whileHover={{ y: -5, scale: 1.02 }}
+                  onClick={() => window.open('https://example.com/download', '_blank')}
+                  className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all text-left group"
+                >
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <Download className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-slate-900 mb-1">Download System</h4>
+                  <p className="text-sm text-slate-500">Get your automation files</p>
+                </motion.button>
+
+                <motion.button 
+                  whileHover={{ y: -5, scale: 1.02 }}
+                  onClick={() => window.open('https://wa.me/971588423188', '_blank')}
+                  className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all text-left group"
+                >
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                    <MessageCircle className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-slate-900 mb-1">WhatsApp Support</h4>
+                  <p className="text-sm text-slate-500">Direct line to our team</p>
+                </motion.button>
+
+                <motion.button 
+                  whileHover={{ y: -5, scale: 1.02 }}
+                  onClick={() => window.open('https://example.com/setup-guide', '_blank')}
+                  className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all text-left group"
+                >
+                  <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-slate-900 mb-1">Setup Guide</h4>
+                  <p className="text-sm text-slate-500">Step-by-step instructions</p>
+                </motion.button>
+              </div>
+            </div>
+          )}
+        </motion.div>
       </div>
     </div>
   );
 }
 
-function Dashboard() {
-  const { user, profile } = useAuth();
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [view, setView] = useState<'properties' | 'analytics' | 'tasks'>('properties');
-  const [isAdding, setIsAdding] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newAddress, setNewAddress] = useState('');
-  const [loading, setLoading] = useState(true);
+// --- Quote Page Component ---
+function QuotePage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const plan = searchParams.get('plan') || 'General';
+  
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+  });
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
-    if (!user) return;
+  const validateEmail = (email: string) => {
+    return String(email)
+      .toLowerCase()
+      .match(
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+      );
+  };
 
-    // Fetch Properties
-    const qProps = query(collection(db, 'properties'), where('ownerUid', '==', user.uid));
-    const unsubProps = onSnapshot(qProps, (snapshot) => {
-      const props = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
-      setProperties(props);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'properties');
-    });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!form.name || !form.email || !form.phone) {
+      setErrorMessage('All fields are required.');
+      setStatus('error');
+      return;
+    }
 
-    // Fetch Bookings
-    const qBookings = query(collection(db, 'bookings'), where('ownerUid', '==', user.uid));
-    const unsubBookings = onSnapshot(qBookings, (snapshot) => {
-      const bks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
-      setBookings(bks);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'bookings');
-    });
+    if (!validateEmail(form.email)) {
+      setErrorMessage('Please enter a valid email address.');
+      setStatus('error');
+      return;
+    }
 
-    // Fetch Tasks
-    const qTasks = query(collection(db, 'tasks'), where('ownerUid', '==', user.uid));
-    const unsubTasks = onSnapshot(qTasks, (snapshot) => {
-      const tks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
-      setTasks(tks);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'tasks');
-    });
-
-    return () => {
-      unsubProps();
-      unsubBookings();
-      unsubTasks();
-    };
-  }, [user]);
-
-  const generateSampleData = async () => {
-    if (!user || properties.length === 0) return;
+    setStatus('submitting');
     
     try {
-      const guests = ['Noah Elie', 'Sarah Jenkins', 'Michael Chen', 'Emma Wilson', 'David Miller', 'Sofia Garcia'];
-      const statuses: ('confirmed' | 'completed' | 'cancelled')[] = ['completed', 'completed', 'confirmed', 'cancelled', 'completed'];
-      
-      for (let i = 0; i < 15; i++) {
-        const prop = properties[Math.floor(Math.random() * properties.length)];
-        const checkIn = new Date();
-        checkIn.setDate(checkIn.getDate() - Math.floor(Math.random() * 90));
-        const checkOut = new Date(checkIn);
-        checkOut.setDate(checkOut.getDate() + 3 + Math.floor(Math.random() * 5));
-        
-        const bookingRef = doc(collection(db, 'bookings'));
-        await setDoc(bookingRef, {
-          id: bookingRef.id,
-          propertyId: prop.id,
-          ownerUid: user.uid,
-          guestName: guests[Math.floor(Math.random() * guests.length)],
-          checkIn: Timestamp.fromDate(checkIn),
-          checkOut: Timestamp.fromDate(checkOut),
-          revenue: 1500000 + Math.floor(Math.random() * 3000000),
-          status: statuses[Math.floor(Math.random() * statuses.length)],
-          createdAt: serverTimestamp(),
-        });
+      const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+      if (!serviceId || !templateId || !publicKey) {
+        throw new Error('EmailJS configuration is missing.');
       }
 
-      // Generate sample tasks
-      const taskTitles = ['Deep clean kitchen', 'Fix leaky faucet', 'Restock toiletries', 'Check smoke detectors', 'Mow the lawn', 'Wash curtains'];
-      const taskPriorities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
-      const taskStatuses: ('todo' | 'in-progress' | 'completed')[] = ['todo', 'in-progress', 'completed'];
-      const assignees = ['John Cleaner', 'Mike Handyman', 'Self', 'Sarah Staff'];
-
-      for (let i = 0; i < 8; i++) {
-        const prop = properties[Math.floor(Math.random() * properties.length)];
-        const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + (Math.floor(Math.random() * 10) - 3));
-        
-        const taskRef = doc(collection(db, 'tasks'));
-        await setDoc(taskRef, {
-          id: taskRef.id,
-          propertyId: prop.id,
-          ownerUid: user.uid,
-          title: taskTitles[Math.floor(Math.random() * taskTitles.length)],
-          description: 'Standard maintenance procedure for this property.',
-          assignedTo: assignees[Math.floor(Math.random() * assignees.length)],
-          dueDate: Timestamp.fromDate(dueDate),
-          status: taskStatuses[Math.floor(Math.random() * taskStatuses.length)],
-          priority: taskPriorities[Math.floor(Math.random() * taskPriorities.length)],
-          createdAt: serverTimestamp(),
-        });
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'sample_data');
+      await emailjs.send(serviceId, templateId, { ...form, plan }, publicKey);
+      setStatus('success');
+    } catch (error: any) {
+      console.error('EmailJS Error:', error);
+      setStatus('error');
+      setErrorMessage(error?.message || 'Something went wrong. Please try again later.');
     }
   };
 
-  const handleAddProperty = async (e: any) => {
-    e.preventDefault();
-    if (!user || !newName.trim()) return;
-
-    try {
-      const propertiesRef = collection(db, 'properties');
-      const docRef = doc(propertiesRef);
-      const newProp = {
-        id: docRef.id,
-        ownerUid: user.uid,
-        name: newName,
-        address: newAddress,
-        status: 'active' as const,
-        createdAt: serverTimestamp(),
-      };
-      
-      await setDoc(docRef, newProp);
-      
-      setNewName('');
-      setNewAddress('');
-      setIsAdding(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'properties');
+  const formVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.1, delayChildren: 0.2 }
     }
   };
 
-  const handleDeleteProperty = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'properties', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `properties/${id}`);
-    }
+  const inputVariants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } }
   };
 
-  const handleAddTask = async (taskData: Partial<Task>) => {
-    if (!user) return;
-    try {
-      const taskRef = doc(collection(db, 'tasks'));
-      await setDoc(taskRef, {
-        ...taskData,
-        id: taskRef.id,
-        ownerUid: user.uid,
-        createdAt: serverTimestamp(),
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'tasks');
-    }
-  };
-
-  const handleUpdateTaskStatus = async (id: string, status: Task['status']) => {
-    try {
-      await updateDoc(doc(db, 'tasks', id), { status });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `tasks/${id}`);
-    }
-  };
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'tasks', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `tasks/${id}`);
-    }
-  };
+  if (status === 'success') {
+    return (
+      <div className="min-h-screen pt-32 pb-20 px-6 bg-slate-50 flex items-center justify-center">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: 'spring', duration: 0.8 }}
+          className="max-w-md w-full bg-white p-12 rounded-[3rem] shadow-2xl text-center border border-slate-200 relative overflow-hidden"
+        >
+          <motion.div 
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
+            className="w-24 h-24 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-200"
+          >
+            <CheckCircle2 className="w-12 h-12" />
+          </motion.div>
+          <motion.h2 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="text-3xl font-black mb-4 text-slate-900"
+          >
+            Quote Requested!
+          </motion.h2>
+          <motion.p 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="text-slate-500 mb-10 leading-relaxed font-medium"
+          >
+            We've received your request for the <span className="text-primary font-bold uppercase">{plan}</span> plan. A specialist will reach out within 24 hours.
+          </motion.p>
+          <motion.button 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate('/')}
+            className="w-full bg-slate-900 text-white py-5 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl"
+          >
+            Return to Homepage
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
-    <div className="pt-24 pb-12 px-6 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
-        <div>
-          <h1 className="text-3xl font-bold text-on-surface">Welcome back, {profile?.displayName || 'Host'}</h1>
-          <p className="text-on-surface-variant">Manage your properties and track your performance.</p>
+    <div className="min-h-screen pt-32 pb-20 px-6 bg-slate-50 flex items-center justify-center">
+      <motion.div 
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-xl w-full bg-white p-10 md:p-16 rounded-[3rem] shadow-2xl border border-slate-200 relative"
+      >
+        <div className="mb-12 text-center">
+          <motion.span 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-primary font-black tracking-[0.2em] text-[10px] uppercase block mb-4"
+          >
+            Premium Onboarding
+          </motion.span>
+          <h2 className="text-4xl font-black mb-4 tracking-tight text-slate-900">Get your custom quote</h2>
+          <p className="text-slate-500 font-medium">
+            Selected Plan: <span className="text-primary font-bold uppercase">{plan}</span>
+          </p>
         </div>
-        <div className="flex items-center gap-4 bg-surface-container p-1 rounded-full overflow-x-auto no-scrollbar">
-          <button 
-            onClick={() => setView('properties')}
-            className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${view === 'properties' ? 'bg-white shadow-sm text-primary' : 'text-on-surface-variant'}`}
-          >
-            Properties
-          </button>
-          <button 
-            onClick={() => setView('analytics')}
-            className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${view === 'analytics' ? 'bg-white shadow-sm text-primary' : 'text-on-surface-variant'}`}
-          >
-            Analytics
-          </button>
-          <button 
-            onClick={() => setView('tasks')}
-            className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${view === 'tasks' ? 'bg-white shadow-sm text-primary' : 'text-on-surface-variant'}`}
-          >
-            Tasks
-          </button>
-        </div>
-      </div>
 
-      {view === 'properties' && (
-        <>
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-bold">Your Properties</h2>
-            <button 
-              onClick={() => setIsAdding(true)}
-              className="bg-primary text-on-primary px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:shadow-lg transition-all"
-            >
-              <Plus className="w-5 h-5" />
-              Add Property
-            </button>
-          </div>
+        <motion.form 
+          variants={formVariants}
+          initial="hidden"
+          animate="visible"
+          onSubmit={handleSubmit} 
+          className="space-y-6"
+        >
+          <motion.div variants={inputVariants} className="space-y-2 group">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Full Name</label>
+            <div className="relative">
+              <motion.input 
+                whileFocus={{ scale: 1.01 }}
+                type="text" 
+                required
+                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-200 font-medium text-slate-900"
+                placeholder="Enter your full name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+              {form.name.length > 2 && (
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                  <CheckCircle2 className="w-5 h-5" />
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
 
-          {isAdding && (
+          <motion.div variants={inputVariants} className="space-y-2 group">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Email Address</label>
+            <div className="relative">
+              <motion.input 
+                whileFocus={{ scale: 1.01 }}
+                type="email" 
+                required
+                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-200 font-medium text-slate-900"
+                placeholder="name@company.com"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+              {validateEmail(form.email) && (
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                  <CheckCircle2 className="w-5 h-5" />
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
+
+          <motion.div variants={inputVariants} className="space-y-2 group">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Phone Number</label>
+            <div className="relative">
+              <motion.input 
+                whileFocus={{ scale: 1.01 }}
+                type="tel" 
+                required
+                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-200 font-medium text-slate-900"
+                placeholder="+62 812 3456 7890"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+              {form.phone.length > 8 && (
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                  <CheckCircle2 className="w-5 h-5" />
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
+
+          {status === 'error' && (
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-12 bg-white p-8 rounded-3xl shadow-xl border border-outline-variant/10"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1, x: [0, -4, 4, -4, 4, 0] }}
+              className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-bold flex items-center gap-3 border border-rose-100"
             >
-              <h2 className="text-xl font-bold mb-6">New Property Details</h2>
-              <form onSubmit={handleAddProperty} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-on-surface-variant">Property Name</label>
-                  <input 
-                    type="text" 
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. Sunset Villa"
-                    className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-on-surface-variant">Address</label>
-                  <input 
-                    type="text" 
-                    value={newAddress}
-                    onChange={(e) => setNewAddress(e.target.value)}
-                    placeholder="e.g. 123 Beach Rd, Bali"
-                    className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none"
-                  />
-                </div>
-                <div className="md:col-span-2 flex gap-4">
-                  <button type="submit" className="bg-primary text-on-primary px-8 py-3 rounded-full font-bold">Save Property</button>
-                  <button type="button" onClick={() => setIsAdding(false)} className="text-on-surface-variant font-bold px-8 py-3">Cancel</button>
-                </div>
-              </form>
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {errorMessage}
             </motion.div>
           )}
 
-          {loading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {properties.length === 0 ? (
-                <div className="col-span-full py-20 text-center bg-surface-container rounded-3xl border-2 border-dashed border-outline-variant">
-                  <Building2 className="w-12 h-12 text-outline-variant mx-auto mb-4" />
-                  <p className="text-on-surface-variant font-medium">No properties added yet. Start by adding your first one!</p>
-                </div>
-              ) : (
-                properties.map((prop) => (
-                  <motion.div 
-                    key={prop.id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="bg-white p-6 rounded-3xl shadow-sm border border-outline-variant/10 group relative"
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
-                        <Building2 className="w-6 h-6" />
-                      </div>
-                      <button 
-                        onClick={() => handleDeleteProperty(prop.id)}
-                        className="text-error opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-error/10 rounded-full"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-on-surface">{prop.name}</h3>
-                    <p className="text-on-surface-variant text-sm mb-4">{prop.address || 'No address provided'}</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${prop.status === 'active' ? 'bg-green-500' : 'bg-slate-400'}`}></span>
-                      <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">{prop.status}</span>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          )}
-        </>
-      )}
+          <motion.button 
+            variants={inputVariants}
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit" 
+            disabled={status === 'submitting'}
+            className="w-full bg-primary text-white py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:shadow-2xl hover:shadow-primary/30 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {status === 'submitting' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                Request Quotation
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
+          </motion.button>
+        </motion.form>
+      </motion.div>
+    </div>
+  );
+}
 
-      {view === 'analytics' && (
-        <div className="animate-in slide-in-from-bottom-4 duration-500">
-          {bookings.length === 0 ? (
-            <div className="py-20 text-center bg-surface-container rounded-3xl border-2 border-dashed border-outline-variant">
-              <BarChart3 className="w-12 h-12 text-outline-variant mx-auto mb-4" />
-              <p className="text-on-surface-variant font-medium mb-6">No booking data available for analytics.</p>
-              {properties.length > 0 && (
-                <button 
-                  onClick={generateSampleData}
-                  className="bg-primary/10 text-primary px-6 py-3 rounded-full font-bold hover:bg-primary/20 transition-all"
-                >
-                  Generate Sample Data
-                </button>
-              )}
-            </div>
-          ) : (
-            <AnalyticsDashboard properties={properties} bookings={bookings} />
-          )}
+// --- Components ---
+
+// --- Pricing Page Component ---
+function PricingPage() {
+  return (
+    <div className="min-h-screen pt-32 pb-20 px-6 bg-surface-container-lowest">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-16">
+          <h2 className="text-4xl md:text-5xl font-bold mb-6 tracking-tight">Flexible plans for every host</h2>
+          <p className="text-xl text-on-surface-variant max-w-2xl mx-auto">Scale your business with transparent pricing and no hidden fees.</p>
         </div>
-      )}
-
-      {view === 'tasks' && (
-        <div className="animate-in slide-in-from-bottom-4 duration-500">
-          <TasksView 
-            properties={properties} 
-            tasks={tasks} 
-            onUpdateStatus={handleUpdateTaskStatus}
-            onDeleteTask={handleDeleteTask}
-            onAddTask={handleAddTask}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
+          <PricingCard 
+            title="Growth"
+            price="2.5JT"
+            features={["Up to 5 Properties", "Basic PMS & Automation", "AI WhatsApp Automation", "Booking Management", "Standard Support"]}
+            buttonText="Get a Quotation"
+          />
+          <PricingCard 
+            title="Scale"
+            price="5JT"
+            features={["Up to 15 Properties", "Advanced PMS & Automation", "Channel Manager + OTA Sync", "Signals AI Insights", "Reputation Management", "Mobile App Access"]}
+            buttonText="Upgrade Now"
+            featured={true}
+          />
+          <PricingCard 
+            title="Enterprise"
+            price="Custom"
+            features={[ "Unlimited Properties", "Full PMS & Automation", "Channel Manager + OTA Integration", "Signals AI (Revenue Optimization)", "CRM & Guest Management", "Direct Booking Engine", "Payments Integration", "Dedicated Account Manager"]}
+            buttonText="Get a Quotation"
           />
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function ContactForm() {
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    subject: '',
+    message: '',
+  });
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const validateEmail = (email: string) => {
+    return String(email)
+      .toLowerCase()
+      .match(
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+      );
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.email || !form.subject || !form.message) {
+      setErrorMessage('All fields are required.');
+      setStatus('error');
+      return;
+    }
+    if (!validateEmail(form.email)) {
+      setErrorMessage('Please enter a valid email address.');
+      setStatus('error');
+      return;
+    }
+
+    setStatus('submitting');
+    try {
+      const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+      if (!serviceId || !templateId || !publicKey) {
+        throw new Error('EmailJS configuration is missing.');
+      }
+
+      await emailjs.send(serviceId, templateId, form, publicKey);
+      setStatus('success');
+      setForm({ name: '', email: '', subject: '', message: '' });
+    } catch (error: any) {
+      console.error('EmailJS Error:', error);
+      setStatus('error');
+      setErrorMessage(error?.message || 'Something went wrong.');
+    }
+  };
+
+  const formVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0 }
+  };
+
+  return (
+    <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
+      <AnimatePresence mode="wait">
+        {status === 'success' ? (
+          <motion.div 
+            key="success"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="text-center py-12"
+          >
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', delay: 0.2 }}
+              className="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-100"
+            >
+              <CheckCircle2 className="w-10 h-10" />
+            </motion.div>
+            <h3 className="text-3xl font-black mb-4 text-slate-900">Message Sent!</h3>
+            <p className="text-slate-500 mb-10 font-medium">We'll get back to you as soon as possible.</p>
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setStatus('idle')}
+              className="text-primary font-black uppercase tracking-widest text-xs hover:underline"
+            >
+              Send another message
+            </motion.button>
+          </motion.div>
+        ) : (
+          <motion.form 
+            key="form"
+            variants={formVariants}
+            initial="hidden"
+            animate="visible"
+            onSubmit={handleSubmit} 
+            className="space-y-6"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <motion.div variants={itemVariants} className="space-y-2 group">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Full Name</label>
+                <div className="relative">
+                  <motion.input 
+                    whileFocus={{ scale: 1.01 }}
+                    type="text" 
+                    required
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-100 font-medium text-slate-900" 
+                    placeholder="John Doe" 
+                  />
+                  {form.name.length > 2 && (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </motion.div>
+                  )}
+                </div>
+              </motion.div>
+              <motion.div variants={itemVariants} className="space-y-2 group">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Email Address</label>
+                <div className="relative">
+                  <motion.input 
+                    whileFocus={{ scale: 1.01 }}
+                    type="email" 
+                    required
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-100 font-medium text-slate-900" 
+                    placeholder="john@example.com" 
+                  />
+                  {validateEmail(form.email) && (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </motion.div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+            <motion.div variants={itemVariants} className="space-y-2 group">
+              <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Subject</label>
+              <motion.input 
+                whileFocus={{ scale: 1.01 }}
+                type="text" 
+                required
+                value={form.subject}
+                onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-100 font-medium text-slate-900" 
+                placeholder="How can we help?" 
+              />
+            </motion.div>
+            <motion.div variants={itemVariants} className="space-y-2 group">
+              <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 group-focus-within:text-primary transition-colors">Message</label>
+              <motion.textarea 
+                whileFocus={{ scale: 1.01 }}
+                required
+                value={form.message}
+                onChange={(e) => setForm({ ...form, message: e.target.value })}
+                className="w-full px-5 py-4 rounded-2xl border-2 border-slate-50 focus:border-primary focus:bg-white outline-none transition-all bg-slate-50/50 hover:border-slate-100 h-32 resize-none font-medium text-slate-900" 
+                placeholder="Tell us more about your needs..."
+              ></motion.textarea>
+            </motion.div>
+            
+            {status === 'error' && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1, x: [0, -4, 4, -4, 4, 0] }}
+                className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-bold flex items-center gap-2 border border-rose-100"
+              >
+                <AlertCircle className="w-4 h-4" />
+                {errorMessage}
+              </motion.div>
+            )}
+
+            <motion.button 
+              variants={itemVariants}
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+              type="submit" 
+              disabled={status === 'submitting'}
+              className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-200 hover:shadow-2xl hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {status === 'submitting' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Processing...
+                </>
+              ) : 'Send Message'}
+            </motion.button>
+          </motion.form>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 function LandingPage() {
+  const navigate = useNavigate();
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login error:", error);
+      navigate('/dashboard');
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user') {
+        console.log("Login popup was closed by the user.");
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        console.log("Login request was cancelled due to a newer request.");
+      } else {
+        console.error("Login error:", error);
+      }
     }
   };
 
   return (
     <>
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 md:pt-48 md:pb-40 bg-hero-gradient overflow-hidden">
-        <div className="max-w-7xl mx-auto px-6 text-center relative z-10">
+      <section className="relative pt-24 pb-16 md:pt-48 md:pb-40 bg-hero-gradient overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 text-center relative z-10">
           <motion.h1 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-white text-5xl md:text-7xl font-bold tracking-tight mb-8 max-w-4xl mx-auto leading-tight"
+            className="text-white text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-6 md:mb-8 max-w-4xl mx-auto leading-tight"
           >
             Stop replying to guest messages all day
           </motion.h1>
@@ -924,7 +833,7 @@ function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-blue-100 text-xl md:text-2xl mb-12 max-w-2xl mx-auto font-light opacity-90"
+            className="text-blue-100 text-lg md:text-2xl mb-10 md:mb-12 max-w-2xl mx-auto font-light opacity-90 px-4"
           >
             Automate bookings, WhatsApp, and operations — all in one simple system designed for modern hosts.
           </motion.p>
@@ -936,7 +845,7 @@ function LandingPage() {
           >
             <button 
               onClick={handleLogin}
-              className="bg-white text-primary px-10 py-4 rounded-full text-lg font-bold hover:translate-y-[-3px] transition-all duration-300 shadow-2xl"
+              className="w-full sm:w-auto bg-white text-primary px-10 py-4 rounded-full text-lg font-bold hover:translate-y-[-3px] transition-all duration-300 shadow-2xl active:scale-95"
             >
               Get Started with Google
             </button>
@@ -954,13 +863,13 @@ function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="mb-20">
             <span className="text-primary font-bold tracking-widest text-xs uppercase block mb-4">Core Capabilities</span>
-            <h2 className="text-4xl md:text-5xl font-bold text-on-surface tracking-tight">Everything you need to scale</h2>
+            <h2 className="text-4xl md:text-5xl font-bold text-on-surface tracking-tight">Everything you need to Host</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             <FeatureCard 
               icon={<Smartphone className="w-7 h-7" />}
-              title="AI WhatsApp"
-              description="24/7 automated responses that sound human. Handle inquiries and bookings while you sleep."
+              title="Marketplace Full OTA Access"
+              description="Full integration with all major booking platforms."
             />
             <FeatureCard 
               icon={<LayoutDashboard className="w-7 h-7" />}
@@ -969,40 +878,40 @@ function LandingPage() {
             />
             <FeatureCard 
               icon={<RefreshCw className="w-7 h-7" />}
-              title="Marketplace Sync"
-              description="Real-time synchronization with Airbnb, Booking.com, and Agoda. Never worry about double bookings."
+              title="Signals AI"
+              description="Advanced analytics, predictive insights, and revenue optimization."
             />
             <FeatureCard 
               icon={<BarChart3 className="w-7 h-7" />}
-              title="Analytics"
-              description="Deep insights into occupancy rates and revenue trends. Make data-driven decisions to grow."
+              title="Reputation Management"
+              description="Full review monitoring, automation, and performance insights."
             />
           </div>
         </div>
       </section>
 
       {/* Comparison Table */}
-      <section className="py-24 bg-surface-container-low" id="comparison">
-        <div className="max-w-5xl mx-auto px-6">
+      <section className="py-24 bg-surface-container-low overflow-hidden" id="comparison">
+        <div className="max-w-5xl mx-auto px-4 md:px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">Why Choose HostFlow?</h2>
-            <p className="text-on-surface-variant">See how we compare to traditional management methods.</p>
+            <p className="text-on-surface-variant">Let AI Run Your Property Business.</p>
           </div>
-          <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-outline-variant/10">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <table className="w-full min-w-[600px] border-collapse bg-surface-container-lowest rounded-3xl overflow-hidden shadow-sm">
               <thead>
-                <tr className="bg-surface-container-high/50">
-                  <th className="py-6 px-8 text-on-surface font-bold">Features</th>
-                  <th className="py-6 px-8 text-center text-primary font-bold">HostFlow AI</th>
-                  <th className="py-6 px-8 text-center text-on-surface-variant font-medium">Standard PMS</th>
+                <tr className="bg-primary text-on-primary">
+                  <th className="py-6 px-8 text-left font-bold">Feature</th>
+                  <th className="py-6 px-8 text-center font-bold">HostFlow</th>
+                  <th className="py-6 px-8 text-center font-bold">Standard Tools</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/10">
-                <ComparisonRow label="Automated PMS" hostflow={true} standard={true} />
-                <ComparisonRow label="WhatsApp AI Concierge" hostflow={true} standard={false} />
-                <ComparisonRow label="Marketplace Integration" hostflow={true} standard={true} />
-                <ComparisonRow label="Mobile Operations App" hostflow={true} standard={false} />
-                <ComparisonRow label="Integrated Payments" hostflow={true} standard={false} />
+                <ComparisonRow label="AI WhatsApp Concierge" hostflow={true} standard={false} />
+                <ComparisonRow label="Real-time OTA Sync" hostflow={true} standard={true} />
+                <ComparisonRow label="Automated Task Management" hostflow={true} standard={false} />
+                <ComparisonRow label="Revenue Optimization AI" hostflow={true} standard={false} />
+                <ComparisonRow label="Direct Booking Engine" hostflow={true} standard={true} />
               </tbody>
             </table>
           </div>
@@ -1020,21 +929,21 @@ function LandingPage() {
             <PricingCard 
               title="Growth"
               price="2.5JT"
-              features={["Up to 5 properties", "Basic WhatsApp Bot", "Email Support"]}
-              buttonText="Start for free"
+              features={["Up to 5 Properties", "Basic PMS & Automation", "AI WhatsApp Automation", "Booking Management", "Standard Support"]}
+              buttonText="Get a Quotation"
             />
             <PricingCard 
               title="Scale"
               price="5JT"
-              features={["Unlimited properties", "Advanced AI WhatsApp", "Marketplace Direct Sync", "Priority Support 24/7"]}
-              buttonText="Get Started Now"
+              features={["Up to 15 Properties", "Advanced PMS & Automation", "Channel Manager + OTA Sync", "Signals AI Insights", "Reputation Management", "Mobile App Access"]}
+              buttonText="Upgrade Now"
               featured={true}
             />
             <PricingCard 
               title="Enterprise"
               price="Custom"
-              features={["Custom integrations", "Account Manager", "Training & Onboarding"]}
-              buttonText="Contact Sales"
+              features={[ "Unlimited Properties", "Full PMS & Automation", "Channel Manager + OTA Integration", "Signals AI (Revenue Optimization)", "CRM & Guest Management", "Direct Booking Engine", "Payments Integration", "Dedicated Account Manager"]}
+              buttonText="Get a Quotation"
             />
           </div>
         </div>
@@ -1122,7 +1031,7 @@ function LandingPage() {
                   </div>
                   <div>
                     <p className="font-bold">Call Us</p>
-                    <p className="text-on-surface-variant">+62 812 3456 7890</p>
+                    <p className="text-on-surface-variant">+971 58 842 3188</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -1137,29 +1046,7 @@ function LandingPage() {
               </div>
             </div>
 
-            <div className="bg-white p-10 rounded-3xl shadow-xl border border-outline-variant/10">
-              <form className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-on-surface-variant">Full Name</label>
-                    <input type="text" className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none" placeholder="John Doe" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-on-surface-variant">Email Address</label>
-                    <input type="email" className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none" placeholder="john@example.com" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-on-surface-variant">Subject</label>
-                  <input type="text" className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none" placeholder="How can we help?" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-on-surface-variant">Message</label>
-                  <textarea className="w-full px-4 py-3 rounded-xl border border-outline-variant focus:ring-2 focus:ring-primary outline-none h-32" placeholder="Tell us more about your needs..."></textarea>
-                </div>
-                <button type="button" className="w-full bg-primary text-on-primary py-4 rounded-full font-bold hover:shadow-lg transition-all">Send Message</button>
-              </form>
-            </div>
+            <ContactForm />
           </div>
         </div>
       </section>
@@ -1179,6 +1066,7 @@ export default function App() {
 
 function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsMenuOpen: (o: boolean) => void }) {
   const { user, loading } = useAuth();
+  const navigate = useNavigate();
 
   const handleLogout = async () => {
     try {
@@ -1191,8 +1079,15 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login error:", error);
+      navigate('/dashboard');
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user') {
+        console.log("Login popup was closed by the user.");
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        console.log("Login request was cancelled due to a newer request.");
+      } else {
+        console.error("Login error:", error);
+      }
     }
   };
 
@@ -1209,17 +1104,17 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
       {/* TopNavBar */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-sm">
         <div className="flex justify-between items-center px-6 py-4 max-w-7xl mx-auto">
-          <div className="text-2xl font-bold tracking-tight text-slate-900 font-headline">HostFlow</div>
+          <Link to="/" className="text-2xl font-bold tracking-tight text-slate-900 font-headline">HostFlow</Link>
           
           {/* Desktop Menu */}
           <div className="hidden md:flex gap-8 items-center">
             {!user ? (
               <>
-                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="#features">Features</a>
-                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="#testimonials">Testimonials</a>
-                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="#faq">FAQ</a>
-                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="#pricing">Pricing</a>
-                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="#contact">Contact</a>
+                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="/#features">Features</a>
+                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="/#testimonials">Testimonials</a>
+                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="/#faq">FAQ</a>
+                <Link to="/pricing" className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium">Pricing</Link>
+                <a className="text-slate-600 hover:text-primary transition-colors duration-200 text-sm font-medium" href="/#contact">Contact</a>
                 <button 
                   onClick={handleLogin}
                   className="bg-primary text-on-primary px-6 py-2.5 rounded-full font-semibold hover:translate-y-[-2px] transition-all duration-300 shadow-lg active:scale-95"
@@ -1229,7 +1124,14 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
               </>
             ) : (
               <div className="flex items-center gap-6">
-                <div className="flex items-center gap-3">
+                <Link to="/dashboard" className="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2 text-sm font-bold">
+                  <LayoutDashboard className="w-4 h-4" />
+                  Dashboard
+                </Link>
+                <Link to="/pricing" className="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2 text-sm font-bold">
+                  Pricing
+                </Link>
+                <div className="flex items-center gap-3 ml-4">
                   <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-outline-variant" alt="User" />
                   <span className="text-sm font-bold text-on-surface">{user.displayName}</span>
                 </div>
@@ -1261,18 +1163,25 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
             >
               {!user ? (
                 <>
-                  <a className="text-slate-600 font-medium py-2" href="#features" onClick={() => setIsMenuOpen(false)}>Features</a>
-                  <a className="text-slate-600 font-medium py-2" href="#testimonials" onClick={() => setIsMenuOpen(false)}>Testimonials</a>
-                  <a className="text-slate-600 font-medium py-2" href="#faq" onClick={() => setIsMenuOpen(false)}>FAQ</a>
-                  <a className="text-slate-600 font-medium py-2" href="#pricing" onClick={() => setIsMenuOpen(false)}>Pricing</a>
-                  <a className="text-slate-600 font-medium py-2" href="#contact" onClick={() => setIsMenuOpen(false)}>Contact</a>
+                  <a className="text-slate-600 font-medium py-2" href="/#features" onClick={() => setIsMenuOpen(false)}>Features</a>
+                  <a className="text-slate-600 font-medium py-2" href="/#testimonials" onClick={() => setIsMenuOpen(false)}>Testimonials</a>
+                  <a className="text-slate-600 font-medium py-2" href="/#faq" onClick={() => setIsMenuOpen(false)}>FAQ</a>
+                  <Link to="/pricing" className="text-slate-600 font-medium py-2" onClick={() => setIsMenuOpen(false)}>Pricing</Link>
+                  <a className="text-slate-600 font-medium py-2" href="/#contact" onClick={() => setIsMenuOpen(false)}>Contact</a>
                   <button onClick={handleLogin} className="bg-primary text-on-primary px-6 py-3 rounded-full font-semibold mt-4">
                     Login
                   </button>
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 py-2 border-b border-outline-variant">
+                  <Link to="/dashboard" className="text-on-surface-variant font-bold py-2 flex items-center gap-2" onClick={() => setIsMenuOpen(false)}>
+                    <LayoutDashboard className="w-5 h-5" />
+                    Dashboard
+                  </Link>
+                  <Link to="/pricing" className="text-on-surface-variant font-bold py-2" onClick={() => setIsMenuOpen(false)}>
+                    Pricing
+                  </Link>
+                  <div className="flex items-center gap-3 py-2 border-b border-outline-variant mt-2">
                     <img src={user.photoURL || ''} className="w-10 h-10 rounded-full" alt="User" />
                     <span className="font-bold text-on-surface">{user.displayName}</span>
                   </div>
@@ -1287,7 +1196,13 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
         </AnimatePresence>
       </nav>
 
-      {user ? <Dashboard /> : <LandingPage />}
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" />} />
+        <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <LandingPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/quote" element={<QuotePage />} />
+      </Routes>
 
       {/* Final CTA (Only on landing) */}
       {!user && (
@@ -1295,7 +1210,15 @@ function AppContent({ isMenuOpen, setIsMenuOpen }: { isMenuOpen: boolean, setIsM
           <div className="max-w-4xl mx-auto text-center relative z-10">
             <h2 className="text-white text-4xl md:text-5xl font-bold mb-8">Start increasing your bookings today</h2>
             <p className="text-blue-100 text-lg mb-12 opacity-80 max-w-xl mx-auto">Join over 1,000+ hosts who have automated their property management workflow.</p>
-            <button className="bg-[#25D366] text-white px-10 py-5 rounded-full text-xl font-bold flex items-center gap-3 mx-auto hover:scale-105 transition-transform shadow-2xl">
+            <button 
+              onClick={() => {
+                const phone = "971588423188";
+                const message = "Hello, I'm interested in HostFlow.";
+                const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+                window.open(url, "_blank");
+              }}
+              className="bg-[#25D366] text-white px-10 py-5 rounded-full text-xl font-bold flex items-center gap-3 mx-auto hover:scale-105 transition-transform shadow-2xl"
+            >
               <MessageSquare className="w-6 h-6 fill-current" />
               Chat on WhatsApp
             </button>
@@ -1357,39 +1280,54 @@ function ComparisonRow({ label, hostflow, standard }: { label: string, hostflow:
 }
 
 function PricingCard({ title, price, features, buttonText, featured = false }: { title: string, price: string, features: string[], buttonText: string, featured?: boolean }) {
+  const navigate = useNavigate();
+  
   return (
-    <div className={`p-10 rounded-3xl flex flex-col h-full transition-all duration-300 ${
+    <motion.div 
+      whileHover={{ 
+        scale: 1.03,
+        y: -8,
+        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.15)"
+      }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className={`p-6 sm:p-10 rounded-[2.5rem] flex flex-col h-full transition-all duration-300 ${
       featured 
-        ? 'bg-white shadow-2xl border-2 border-primary ring-4 ring-primary/5 md:scale-105 relative z-10' 
-        : 'bg-white shadow-sm border border-outline-variant/10 hover:translate-y-[-4px]'
+        ? 'bg-white border-2 border-primary ring-8 ring-primary/5 relative z-10' 
+        : 'bg-white border border-slate-100 shadow-sm'
     }`}>
       {featured && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] uppercase font-black px-4 py-1 rounded-full tracking-widest">
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] uppercase font-black px-4 py-1 rounded-full tracking-widest shadow-lg shadow-primary/20">
           Most Popular
         </div>
       )}
-      <h3 className={`text-lg font-bold mb-2 ${featured ? 'text-primary' : 'text-on-surface-variant'}`}>{title}</h3>
+      <h3 className={`text-xl font-black mb-2 tracking-tight ${featured ? 'text-primary' : 'text-slate-900'}`}>{title}</h3>
       <div className="flex items-baseline gap-1 mb-8">
-        {price !== 'Custom' && <span className="text-sm font-bold text-on-surface">Rp</span>}
-        <span className="text-4xl font-bold text-on-surface">{price}</span>
-        {price !== 'Custom' && <span className="text-on-surface-variant text-sm">/mo</span>}
+        {price !== 'Custom' && <span className="text-sm font-black text-slate-400 uppercase tracking-widest">Rp</span>}
+        <span className="text-5xl font-black text-slate-900 tracking-tighter">{price}</span>
+        {price !== 'Custom' && <span className="text-slate-400 font-bold text-sm">/mo</span>}
       </div>
-      <ul className="space-y-4 mb-10 flex-grow">
+      <ul className="space-y-5 mb-10 flex-grow">
         {features.map((f, i) => (
-          <li key={i} className="flex items-center gap-3 text-sm text-on-surface-variant">
-            <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
+          <li key={i} className="flex items-center gap-4 text-sm font-medium text-slate-500">
+            <div className="w-6 h-6 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
             {f}
           </li>
         ))}
       </ul>
-      <button className={`w-full py-4 rounded-full font-bold transition-all ${
+      <motion.button 
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => navigate(`/quote?plan=${title.toLowerCase()}`)}
+        className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-xs transition-all ${
         featured 
-          ? 'bg-primary text-white hover:shadow-lg hover:shadow-primary/30' 
-          : 'border border-primary text-primary hover:bg-primary hover:text-white'
+          ? 'bg-primary text-white shadow-xl shadow-primary/20 hover:shadow-2xl hover:shadow-primary/30' 
+          : 'bg-slate-50 text-slate-900 hover:bg-slate-100 border border-slate-200'
       }`}>
         {buttonText}
-      </button>
-    </div>
+      </motion.button>
+    </motion.div>
   );
 }
 
@@ -1452,3 +1390,4 @@ function FAQItem({ question, answer }: { question: string, answer: string }) {
     </div>
   );
 }
+

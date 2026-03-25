@@ -52,6 +52,20 @@ service cloud.firestore {
     //   - priority: string (required, 'low', 'medium', 'high')
     //   - createdAt: timestamp (required)
     //
+    // Collection: whatsapp_messages
+    // Document ID: messageId
+    // Fields:
+    //   - id: string (required)
+    //   - whatsappId: string (optional)
+    //   - from: string (required)
+    //   - to: string (required)
+    //   - text: string (required)
+    //   - type: string (required, 'incoming' or 'outgoing')
+    //   - status: string (required, 'pending', 'processed', 'sent', 'failed')
+    //   - aiResponse: string (optional)
+    //   - propertyId: string (optional)
+    //   - createdAt: timestamp (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -123,6 +137,17 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidWhatsAppMessage(data) {
+      return hasRequiredFields(['id', 'from', 'to', 'text', 'type', 'status', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'whatsappId', 'from', 'to', 'text', 'type', 'status', 'aiResponse', 'propertyId', 'createdAt']) &&
+             data.from is string && data.from.size() > 0 &&
+             data.to is string && data.to.size() > 0 &&
+             data.text is string &&
+             data.type in ['incoming', 'outgoing'] &&
+             data.status in ['pending', 'processed', 'sent', 'failed'] &&
+             data.createdAt is timestamp;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -152,6 +177,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidTask(request.resource.data);
       allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid && isValidTask(request.resource.data);
       allow delete: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /whatsapp_messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidWhatsAppMessage(request.resource.data);
+      allow update: if isAuthenticated() && isValidWhatsAppMessage(request.resource.data);
+      allow delete: if isAdmin();
     }
   }
 }

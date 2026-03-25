@@ -61,7 +61,7 @@
 }
 
 .bg-hero-gradient {
-  background: linear-gradient(135deg, #0A2540 0%, #1E40AF 100%);
+  background: radial-gradient(circle at center, #1E40AF 0%, #0A2540 70%, #05192D 100%);
 }
 
 .bg-cta-gradient {
