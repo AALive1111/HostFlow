@@ -574,7 +574,7 @@ function PricingPage() {
     <div className="min-h-screen pt-32 pb-20 px-6 bg-surface-container-lowest">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-bold mb-6 tracking-tight">Flexible plans for every host</h2>
+          <h2 className="text-4xl md:text-5xl font-bold mb-6 tracking-tight">HostFlow Pricing Plans</h2>
           <p className="text-xl text-on-surface-variant max-w-2xl mx-auto">Scale your business with transparent pricing and no hidden fees.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
